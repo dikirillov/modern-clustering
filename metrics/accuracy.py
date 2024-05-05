@@ -9,6 +9,7 @@ def get_preds_labels(y_true, y_preds, num_clusters):
         n_cur_instances = cost_matrix[:, i].sum()
         cost_matrix[:, i] = n_cur_instances - conf_matrix[:, i]
 
+    cost_matrix = cost_matrix.T
     munkres_indicies = Munkres().compute(cost_matrix)
     y_preds_munkres = np.zeros_like(y_preds)
     permutated_clusters = np.zeros(num_clusters)
