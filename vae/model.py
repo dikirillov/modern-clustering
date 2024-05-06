@@ -23,6 +23,12 @@ class VAE(nn.Module):
         decoded = self.decoder(hidden)
         return decoded, mus, log_vars
 
+    def encode(self, x):
+        return self.reparametrisation_trick(*self.encoder(x)).squeeze()
+
+    def decode(self, z):
+        return self.decoder(z)
+
     def training_epoch(self, data_loader, optimizer, alpha, device):
         self.train()
         total_loss = 0
