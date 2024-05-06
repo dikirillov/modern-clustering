@@ -82,7 +82,6 @@ class DEC(nn.Module):
                 x = x[0]
             x = x.to(device)
             pretrain_kmeans += self.representation_module.encode(x).flatten(start_dim=1).tolist()
-            break
 
         pretrain_kmeans = np.asarray(pretrain_kmeans)
         kmeans = KMeans(n_clusters=n_clusters, n_init=20).fit(pretrain_kmeans)
