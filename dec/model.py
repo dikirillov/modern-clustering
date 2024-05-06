@@ -8,8 +8,13 @@ from sae import SAE
 
 
 class DEC(nn.Module):
-    def __init__(self):
+    def __init__(self, representation_module=None):
         super().__init__()
+        if representation_module is not None:
+            self.representation_module = representation_module
+            self.need_sae = False
+        else:
+            self.need_sae = True
 
     def dec_loss(self, z, mu, alpha=1):
         dist = ((z.unsqueeze(1) - mu) ** 2).sum(dim=2)
@@ -32,7 +37,7 @@ class DEC(nn.Module):
             x = x.to(device)
 
             optimizer.zero_grad()
-            encoded = self.sae.encode(x)
+            encoded = self.representation_module.encode(x).flatten(start_dim=1)
             loss = self.dec_loss(encoded, self.cluster_centers)
             loss.backward()
             optimizer.step()
@@ -46,33 +51,48 @@ class DEC(nn.Module):
         self.eval()
         total_loss = 0
 
-        for x in data_loader:
+        for x in tqdm(data_loader):
             if dataloader_mode != "unsupervised":
                 x = x[0]
             x = x.to(device)
 
-            encoded = self.sae.encode(x)
+            encoded = self.representation_module.encode(x).flatten(start_dim=1)
             loss = self.dec_loss(encoded, self.cluster_centers)
             total_loss += loss.item()
 
         return total_loss / len(data_loader)
 
-    def fit(self, n_clusters, dimentions, train_loader, val_loader, optimizer, n_epochs, device, dataloader_mode="unsupervised", *optimizer_args, **optimizer_kwargs):
-        target_size = train_loader.dataset[0][0].shape[0]
-        self.sae = SAE(dimentions).fit(train_loader, val_loader, torch.optim.Adam, nn.MSELoss(reduction="sum"), 5, device, dataloader_mode)
-        # self.sae = SAE(dimentions)
+    def fit(self, 
+            n_clusters, in_channels, 
+            train_loader, val_loader, optimizer, 
+            n_epochs, device, dataloader_mode="unsupervised", 
+            *optimizer_args, **optimizer_kwargs
+        ):
+        if self.need_sae:
+            self.representation_module = SAE(in_channels).fit(
+                train_loader, val_loader, 
+                torch.optim.Adam, nn.MSELoss(reduction="sum"), 
+                5, device, dataloader_mode, 
+                lr=3e-4
+            )
 
-        pretrain_kmeans = train_loader.dataset.data.view(-1, target_size).type(torch.FloatTensor)
-        pretrain_kmeans = self.sae.encode(pretrain_kmeans)
-        kmeans = KMeans(n_clusters=n_clusters, n_init=20).fit(pretrain_kmeans.detach().numpy())
+        pretrain_kmeans = []
+        for x in train_loader:
+            if dataloader_mode != "unsupervised":
+                x = x[0]
+            x = x.to(device)
+            pretrain_kmeans += self.representation_module.encode(x).flatten(start_dim=1).tolist()
+            break
+
+        pretrain_kmeans = np.asarray(pretrain_kmeans)
+        kmeans = KMeans(n_clusters=n_clusters, n_init=20).fit(pretrain_kmeans)
         self.cluster_centers = Variable(torch.from_numpy(kmeans.cluster_centers_), requires_grad=True)
 
-        cur_opimizer = optimizer(list(self.sae.parameters()) + [self.cluster_centers], lr=0.1)
-
+        cur_optimizer = optimizer(list(self.representation_module.parameters()) + [self.cluster_centers], *optimizer_args, **optimizer_kwargs)
         train_loss_history, valid_loss_history = [], []
         epoch = 0
         for epoch in tqdm(range(n_epochs), desc=f'Training {epoch}/{n_epochs}'):
-            train_loss = self.training_epoch(train_loader, cur_opimizer, device, dataloader_mode)
+            train_loss = self.training_epoch(train_loader, cur_optimizer, device, dataloader_mode)
             valid_loss = self.evaluate(valid_loader, device, dataloader_mode)
 
             train_loss_history.append(train_loss)

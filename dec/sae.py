@@ -4,10 +4,15 @@ from tqdm.notebook import tqdm
 
 from sae_basic_block import SAEBasicBlock
 
+
 class SAE(nn.Module):
     def __init__(self, dimentions):
         super().__init__()
-        self.blocks = [SAEBasicBlock(dimentions[i], dimentions[i + 1]) for i in range(len(dimentions) - 1)]
+        cur_block_input_dim = in_channels
+        self.blocks = []
+        for i in range(n_blocks):
+            self.blocks.append(SAEBasicBlock(cur_block_input_dim))
+            cur_block_input_dim *= 2
 
     def encode(self, x, num_layers=None):
         if num_layers is None:
