@@ -24,8 +24,6 @@ class DEC(nn.Module):
         q_numerator = torch.pow(1 + dist / alpha, -(alpha + 1) / 2)
         q = q_numerator / torch.sum(q_numerator, dim=1, keepdim=True)
         f = q.sum(0, keepdim=True)
-        p_unnorm = torch.pow(q, 3) / f
-        p = p_unnorm / p_unnorm.sum(1, keepdim=True)
 
         p_numerator = q ** 2 / torch.sum(q, 0)
         p = (p_numerator.T / torch.sum(p_numerator, 1)).T
