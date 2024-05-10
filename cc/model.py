@@ -6,6 +6,7 @@ from tqdm.notebook import tqdm
 
 from transforms import CCTransforms
 from loss import CCLoss
+from metrics.evaluate import evaluate
 
 
 class ContrastiveClustering(nn.Module):
