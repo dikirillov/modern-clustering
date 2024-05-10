@@ -7,4 +7,7 @@ def evaluate(y_true, predictions, num_clusters):
     nmi = metrics.normalized_mutual_info_score(y_true, predictions)
     ari = metrics.adjusted_rand_score(y_true, predictions)
     fmi = metrics.fowlkes_mallows_score(y_true, predictions)
-    return acc, nmi, ari, fmi
+    bcubed = BCubed(y_true)
+    bc = bcubed(preds)
+    return acc, nmi, ari, fmi, bc
+
