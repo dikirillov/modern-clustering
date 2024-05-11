@@ -10,46 +10,59 @@ from metrics.evaluate import evaluate
 
 
 class ContrastiveClustering(nn.Module):
-    def __init__(self, n_clusters, hidden_dim, in_channels=1):
+    def __init__(self, n_clusters, hidden_dim, representation_module=None, in_channels=1, representation_dim=1000, need_flatten=True):
         super().__init__()
-        self.resnet = torchvision.models.resnet34(weights=ResNet34_Weights.IMAGENET1K_V1)
+        if representation_module is None:
+            self.representation_module = torchvision.models.resnet34(weights=ResNet34_Weights.IMAGENET1K_V1)
+            self.rep_input_channels = 3
+        else:
+            self.representation_module = representation_module
+            self.rep_input_channels = in_channels
+            self.need_encode = True
         self.in_channels = in_channels
+        self.need_flatten = need_flatten
 
         self.instances_projector = nn.Sequential(
-            nn.Linear(1000, 1000),
-            nn.BatchNorm1d(1000),
+            nn.Linear(representation_dim, representation_dim),
+            nn.BatchNorm1d(representation_dim),
             nn.ReLU(),
-            nn.Linear(1000, hidden_dim),
+            nn.Linear(representation_dim, hidden_dim),
         )
         self.cluster_projector = nn.Sequential(
-            nn.Linear(1000, 1000),
-            nn.BatchNorm1d(1000),
+            nn.Linear(representation_dim, representation_dim),
+            nn.BatchNorm1d(representation_dim),
             nn.ReLU(),
-            nn.Linear(1000, n_clusters),
+            nn.Linear(representation_dim, n_clusters),
             nn.Softmax(dim=1),
         )
 
         self.n_clusters = n_clusters
         self.hidden_dim = hidden_dim
 
-    def forward(self, x):
-        x_for_resnet = x
-        if self.in_channels == 1:
-            x_for_resnet = torch.cat((x, x, x), dim=1).to(self.device)
+    def get_hidden_representation(self, x):
+        x_for_representation = x
+        if self.need_flatten:
+            x_for_representation = x_for_representation.reshape((x_for_representation.shape[0], -1))
 
-        resnet_features = self.resnet(x_for_resnet)
-        hidden_features = self.instances_projector(resnet_features)
+        hidden_representation = None
+        if self.in_channels == 1 and self.rep_input_channels == 3:
+            x_for_representation = torch.cat((x, x, x), dim=1).to(self.device)
+        if self.need_encode:
+            hidden_representation = self.representation_module.encode(x_for_representation)
+        else:
+            hidden_representation = self.representation_module(x_for_representation)
+        return hidden_representation.reshape((hidden_representation.shape[0], -1))
+
+    def forward(self, x):
+        hidden_representation = self.get_hidden_representation(x)
+        hidden_features = self.instances_projector(hidden_representation)
         hidden_features = torch.nn.functional.normalize(hidden_features, dim=1)
-        cluster_assignment = self.cluster_projector(resnet_features)
+        cluster_assignment = self.cluster_projector(hidden_representation)
         return hidden_features, cluster_assignment
 
     def get_cluster(self, x):
-        x_for_resnet = x
-        if self.in_channels == 1:
-            x_for_resnet = torch.cat((x, x, x), dim=1).to(self.device)
-
-        resnet_features = self.resnet(x_for_resnet)
-        cluster_assignment = self.cluster_projector(resnet_features)
+        hidden_representation = self.get_hidden_representation(x)
+        cluster_assignment = self.cluster_projector(hidden_representation)
         return cluster_assignment.argmax(dim=1)
 
     def training_epoch(self, data_loader, optimizer, device, dataloader_mode="unsupervised"):
