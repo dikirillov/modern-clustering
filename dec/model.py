@@ -10,12 +10,14 @@ from metrics.evaluate import evaluate
 
 
 class DEC(nn.Module):
-    def __init__(self, num_clusters=10, autoencoder=None, cluster_centers=None, alpha=1.0):
+    def __init__(self, representation_module, num_clusters=10, alpha=1.0, is_resnet=False, need_to_cat=True):
         super().__init__()
         self.num_clusters = num_clusters
-        self.autoencoder = autoencoder
+        self.representation_module = representation_module
         self.alpha = alpha
         self.cluster_centers = None
+        self.is_resnet = is_resnet
+        self.need_to_cat = need_to_cat
         self.criterion = nn.KLDivLoss(size_average=False)
 
     def p_distribution(self, q):
@@ -23,20 +25,29 @@ class DEC(nn.Module):
         p = (p_numerator.t() / torch.sum(p_numerator, 1)).t()
         return p.detach()
 
+    def get_representation(self, x):
+        if self.is_resnet:
+            if self.need_to_cat:
+                return self.representation_module(torch.cat((x, x, x), dim=1))
+            else:
+                return self.representation_module(x)
+        else:
+            return self.representation_module.encode(x.reshape((x.shape[0], -1)))
+
     def forward(self, x):
-        z = self.autoencoder.encode(x) 
+        z = self.get_representation(x)
         dist = torch.pow(z.unsqueeze(1) - self.cluster_centers, 2).sum(dim=2)
         q_numerator = 1.0 / (1.0 + dist / self.alpha)
         q_numerator = torch.pow(q_numerator, (self.alpha + 1) / 2)
         q = (q_numerator.t() / torch.sum(q_numerator, 1)).t()
         return q
 
-    @torch.inference_mode()
+   @torch.inference_mode()
     def eval_kmeans(self, dataloader, device):
         y_true, hidden_vectors = [], []
         for a, b in tqdm(dataloader):
-            a = a.to(device).reshape((a.shape[0], -1))
-            hidden_vectors += self.autoencoder.encode(a).flatten(start_dim=1).tolist()
+            a = a.to(device)
+            hidden_vectors += self.get_representation(a).flatten(start_dim=1).tolist()
             y_true += b.tolist()
         hidden_vectors = np.asarray(hidden_vectors)
         y_true = np.asarray(y_true)
@@ -45,7 +56,7 @@ class DEC(nn.Module):
         for elem in hidden_vectors:
             labels.append(((self.cluster_centers.cpu().detach().numpy() - elem) ** 2).sum(axis=1).argmin())
         labels = np.asarray(labels)
-        output = evaluate(y_true, labels, self.num_clusters)
+        output = evaluate(y_true, labels, 10)
         return output
 
     def fit(self, origin_dataset, train_indices, train_loader, valid_loader, num_epochs, device, path="/kaggle/working"):
@@ -54,7 +65,7 @@ class DEC(nn.Module):
         for x, y in train_loader:
             x = x.float()
             x = x.to(device).reshape((x.shape[0], -1))
-            pretrain_kmeans += self.autoencoder.encode(x).detach().cpu().tolist()
+            pretrain_kmeans += self.get_representation(x).detach().cpu().tolist()
 
         pretrain_kmeans = np.asarray(pretrain_kmeans)
         kmeans = KMeans(n_clusters=10).fit(pretrain_kmeans)
