@@ -69,7 +69,7 @@ class DEC(nn.Module):
             pretrain_kmeans += self.get_representation(x).detach().cpu().tolist()
 
         pretrain_kmeans = np.asarray(pretrain_kmeans)
-        kmeans = KMeans(n_clusters=10).fit(pretrain_kmeans)
+        kmeans = KMeans(n_clusters=self.num_clusters).fit(pretrain_kmeans)
 
         cluster_centers = torch.tensor(kmeans.cluster_centers_, dtype=torch.float).cuda()
         self.cluster_centers = torch.nn.Parameter(cluster_centers)
