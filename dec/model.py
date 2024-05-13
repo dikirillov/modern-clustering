@@ -10,13 +10,14 @@ from metrics.evaluate import evaluate
 
 
 class DEC(nn.Module):
-    def __init__(self, representation_module, num_clusters=10, alpha=1.0, is_resnet=False, need_to_cat=True):
+    def __init__(self, representation_module, num_clusters=10, alpha=1.0, is_resnet=False, need_to_cat=True, is_heavy=False):
         super().__init__()
         self.num_clusters = num_clusters
         self.representation_module = representation_module
         self.alpha = alpha
         self.cluster_centers = None
         self.is_resnet = is_resnet
+        self.is_heavy = is_heavy
         self.need_to_cat = need_to_cat
         self.criterion = nn.KLDivLoss(size_average=False)
 
@@ -56,7 +57,7 @@ class DEC(nn.Module):
         for elem in hidden_vectors:
             labels.append(((self.cluster_centers.cpu().detach().numpy() - elem) ** 2).sum(axis=1).argmin())
         labels = np.asarray(labels)
-        output = evaluate(y_true, labels, 10)
+        output = evaluate(y_true, labels, self.num_clusters)
         return output
 
     def fit(self, origin_dataset, train_indices, train_loader, valid_loader, num_epochs, device, path="/kaggle/working"):
@@ -83,7 +84,12 @@ class DEC(nn.Module):
 
         loss_function = nn.KLDivLoss(size_average=False)
         optimizer = torch.optim.SGD(params=self.parameters(), lr=0.1, momentum=0.9)
-        tmp_loader = DataLoader(origin_dataset.data[train_indices], batch_size=len(train_indices), num_workers=4, pin_memory=True, shuffle=True)
+        tmp_loader = None
+        if self.is_heavy:
+            tmp_loader = DataLoader(origin_dataset.data[train_indices], batch_size=16384, num_workers=4, pin_memory=True, shuffle=True)
+        else:
+            tmp_loader = DataLoader(origin_dataset.data[train_indices], batch_size=len(train_indices), num_workers=4, pin_memory=True, shuffle=True)
+        
         train_loss_history = []
         best_acc = acc
         for epoch in range(num_epochs):
